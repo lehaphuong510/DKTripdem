@@ -3,6 +3,8 @@ import pandas as pd
 import os
 import base64
 import re
+import unicodedata
+from collections import defaultdict
 from streamlit_gsheets import GSheetsConnection
 
 # ================= CẤU HÌNH TRANG & GIAO DIỆN =================
@@ -19,10 +21,9 @@ def get_image_base64(path):
 qr_base64 = get_image_base64("TTCK.jpg")
 thongtin_base64 = get_image_base64("THÔNG TIN TRIP POST.jpg")
 
-# Fix triệt để lỗi đuôi thập phân (.0) và lỗi ép kiểu Checkbox (Boolean)
 def parse_money(amount):
     if pd.isna(amount): return 0
-    if isinstance(amount, bool): return 0 # Chặn lỗi TRUE = 1đ
+    if isinstance(amount, bool): return 0 
     try:
         if isinstance(amount, (int, float)): return int(amount)
         s = str(amount).strip()
@@ -36,10 +37,31 @@ def format_vnd(amount):
     val = parse_money(amount)
     return f"{val:,}".replace(',', '.') + " VNĐ" if val > 0 else "0 VNĐ"
 
+def normalize_text(text):
+    if pd.isna(text): return ""
+    return unicodedata.normalize('NFC', str(text)).strip().lower()
+
+# Hàm chẻ text lấy prefix (vd: "Đợt 1: Đi Đà Lạt" -> "Đợt 1")
+def get_prefix(text):
+    if pd.isna(text): return ""
+    txt = str(text).strip()
+    return txt.split(':')[0].strip() if ':' in txt else txt
+
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF; color: #333333; }
     h1, h2, h3, h4, .stTabs [data-baseweb="tab"] p { color: #2C5E1A !important; font-weight: bold; }
+    
+    /* FIX UI: Chữ tiêu đề co giãn theo màn hình, chống rớt chữ vô duyên */
+    h1.main-title {
+        text-align: center;
+        color: #2C5E1A !important;
+        font-weight: 900;
+        font-size: clamp(22px, 5vw, 36px);
+        word-break: keep-all;
+        line-height: 1.4;
+        margin-bottom: 30px;
+    }
     
     .stButton>button { background-color: #D4AF37; color: #1A3C0F; font-weight: bold; border-radius: 8px; border: none; width: 100%; padding: 10px; }
     .stButton>button:hover { background-color: #2C5E1A; color: #FFFFFF; border: none; }
@@ -63,6 +85,7 @@ st.markdown("""
     .metric-value { font-size: 28px; color: #D4AF37; font-weight: 900;}
     
     .total-row td { background-color: #F4C430 !important; color: #1A3C0F !important; font-size: 16px; font-weight: 900 !important;}
+    .profit-row td { background-color: #E8F5E9 !important; color: #1B5E20 !important; font-size: 18px; font-weight: 900 !important;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -81,6 +104,10 @@ except Exception as e:
     st.error(f"Lỗi kết nối dữ liệu: {e}")
     st.stop()
 
+# Auto-detect cột Đợt ĐK
+col_dot = 'Đợt ĐK' if 'Đợt ĐK' in df_data.columns else 'ĐĂNG KÝ ĐỢT TRIP'
+df_data['Original_Index'] = df_data.index
+
 try:
     time_ck = int(df_config.iloc[0]['Thời gian CK']) if not pd.isna(df_config.iloc[0]['Thời gian CK']) else 0
     time_check = int(df_config.iloc[0]['Thời gian Check']) if not pd.isna(df_config.iloc[0]['Thời gian Check']) else 0
@@ -89,7 +116,7 @@ except:
     wait_time = 15
 
 # ================= PHẦN 1: USER - KẾT QUẢ ĐĂNG KÝ =================
-st.markdown("<h1 style='text-align: center;'>KẾT QUẢ ĐĂNG KÝ <br> TRIP ĐÊM HUYỀN BÍ</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-title'>KẾT QUẢ ĐĂNG KÝ<br>TRIP ĐÊM HUYỀN BÍ</h1>", unsafe_allow_html=True)
 
 st.markdown("<p style='color: #2C5E1A; font-weight: 900; font-size: 16px; text-transform: uppercase; margin-bottom: 5px;'>NHẬP SỐ ĐIỆN THOẠI CỦA BẠN (ĐÃ DÙNG ĐĂNG KÝ):</p>", unsafe_allow_html=True)
 phone_input = st.text_input("SDT", label_visibility="collapsed", placeholder="Ví dụ: 0901234567")
@@ -101,48 +128,102 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
         matched_rows = df_data[df_data['Phone_Compare'] == clean_input]
         
         if not matched_rows.empty:
+            classified_rows = []
+            first_name = "Bạn"
+            
+            # --- BƯỚC 1: PHÂN LOẠI CÁC DÒNG (Group logic) ---
             for idx, row in matched_rows.iterrows():
-                dot_dk = str(row['Đợt ĐK']).strip()
+                dot_dk_full = str(row[col_dot]).strip()
+                dot_dk_prefix = get_prefix(dot_dk_full)
                 sdt = row['SDT']
                 sdt_display = f"0{str(sdt).lstrip('0')}"
-                
                 status = str(row['Trạng thái CK']).strip().upper()
                 sl_dk = int(row['SL']) if pd.notna(row['SL']) else 1
                 
                 ds_nguoi = str(row['DS người']).split(',')
-                first_name = ds_nguoi[0].split('-')[0].strip() if ds_nguoi else "Bạn"
+                if first_name == "Bạn" and ds_nguoi and ds_nguoi[0] != 'nan':
+                    parts = ds_nguoi[0].split('-')
+                    if parts[0].strip(): first_name = parts[0].strip()
                 
-                df_dot = df_data[df_data['Đợt ĐK'].astype(str).str.strip() == dot_dk].sort_values(by='Timestamp').copy()
+                # Logic đếm slot (Dựa theo Prefix)
+                df_dot = df_data[df_data[col_dot].apply(get_prefix).apply(normalize_text) == normalize_text(dot_dk_prefix)].sort_values(by='Timestamp').copy()
                 df_dot['CumSum_SL'] = pd.to_numeric(df_dot['SL'], errors='coerce').fillna(0).cumsum()
                 
-                limit_row = df_config[df_config['Nội dung option'].astype(str).str.strip() == dot_dk]
-                max_slot = int(float(limit_row['SL giới hạn'].values[0])) if not limit_row.empty and pd.notna(limit_row['SL giới hạn'].values[0]) else 30
+                limit_mask = df_config['Nội dung option'].apply(get_prefix).apply(normalize_text) == normalize_text(dot_dk_prefix)
+                limit_series = df_config.loc[limit_mask, 'SL giới hạn']
                 
-                user_cumsum = df_dot.loc[df_dot['SDT'] == sdt, 'CumSum_SL'].values[0]
+                try:
+                    max_slot = int(float(limit_series.values[0])) if not limit_series.empty and pd.notna(limit_series.values[0]) else 30
+                except:
+                    max_slot = 30
                 
+                # Lấy đúng cumsum của dòng hiện tại
+                user_cumsum = df_dot.loc[df_dot['Original_Index'] == idx, 'CumSum_SL'].values[0]
+                
+                cat = status
+                lo_type = 0
                 if user_cumsum > max_slot:
-                    if (user_cumsum - sl_dk) < max_slot:
-                        st.error(f"Xin lỗi {first_name}, do số lượng bạn đăng ký ({sl_dk} người) đã vượt quá số lượng slot còn lại của đợt này. Bạn vui lòng liên hệ Zalo 0902800318 để được BTC hỗ trợ thêm nha!")
-                    else:
-                        st.error(f"Thành thật xin lỗi {first_name} 😭 Do ở cùng một thời điểm có quá nhiều người cùng gửi form nên đăng ký của bạn được ghi nhận khi đợt trip đã kín chỗ. Hẹn gặp bạn trong đợt tiếp theo nha!")
-                else:
+                    cat = "LO_SLOT"
+                    lo_type = 1 if (user_cumsum - sl_dk) < max_slot else 2
+                        
+                classified_rows.append({
+                    'row': row,
+                    'dot_dk_full': dot_dk_full,
+                    'dot_dk_prefix': dot_dk_prefix,
+                    'status': status,
+                    'sl_dk': sl_dk,
+                    'ds_nguoi': [n for n in ds_nguoi if n.strip() and n != 'nan'],
+                    'cat': cat,
+                    'lo_type': lo_type,
+                    'sdt_display': sdt_display
+                })
+            
+            # --- BƯỚC 2: GOM NHÓM (Group By Category) ---
+            groups = defaultdict(list)
+            for r in classified_rows:
+                groups[r['cat']].append(r)
+                
+            # --- BƯỚC 3: HIỂN THỊ KẾT QUẢ ---
+            for cat, items in groups.items():
+                if cat == "LO_SLOT":
+                    for item in items:
+                        if item['lo_type'] == 1:
+                            st.error(f"Xin lỗi {first_name}, do số lượng đăng ký tại {item['dot_dk_prefix']} ({item['sl_dk']} người) đã vượt quá số lượng slot còn lại. Bạn vui lòng liên hệ Zalo 0902800318 để được BTC hỗ trợ thêm nha!")
+                        else:
+                            st.error(f"Thành thật xin lỗi {first_name} 😭 Do ở cùng một thời điểm có quá nhiều người cùng gửi form nên đăng ký của bạn tại {item['dot_dk_prefix']} được ghi nhận khi đợt trip đã kín chỗ. Hẹn gặp bạn đợt tiếp theo nha!")
+                
+                elif cat == "HỦY SLOT":
+                    dots = " & ".join(list(set([i['dot_dk_prefix'] for i in items])))
+                    st.markdown(f"<div class='cancel-alert'><strong>Xin lỗi, đăng ký của {first_name} tại {dots} đã bị HỦY vì quá thời hạn thanh toán mất rồi.</strong></div>", unsafe_allow_html=True)
+                
+                elif cat in ["ĐANG CẬP NHẬT", "CHỐT ĐƠN THÀNH CÔNG"]:
+                    # Gom data
+                    total_sl = sum(i['sl_dk'] for i in items)
+                    total_tien_val = sum(parse_money(i['row']['Tổng tiền']) for i in items)
+                    dots_full = " <br> ".join(list(set([i['dot_dk_full'] for i in items])))
+                    sdt_disp = items[0]['sdt_display']
+                    all_ds = []
+                    for i in items: all_ds.extend(i['ds_nguoi'])
+                    
+                    latest_row = items[-1]['row']
+                    han_chot = latest_row['Hạn chót CK']
+                    tg_con = latest_row['Thời gian còn lại']
+                    
                     info_card_html = f"""
                     <div class='info-card'>
-                        <p><strong>Đợt Đăng ký:</strong> <span>{dot_dk}</span></p>
-                        <p><strong>SĐT người đại diện:</strong> <span>{sdt_display}</span></p>
-                        <p style='margin-bottom:0;'><strong>Số lượng đăng ký:</strong> <span>{sl_dk} người</span></p>
+                        <p><strong>Đợt Đăng ký:</strong> <br><span style='font-size: 15px;'>{dots_full}</span></p>
+                        <p><strong>SĐT người đại diện:</strong> <span>{sdt_disp}</span></p>
+                        <p style='margin-bottom:0;'><strong>Tổng số lượng:</strong> <span>{total_sl} người</span></p>
                     </div>
                     """
                     
-                    if status == "HỦY SLOT":
-                        st.markdown(f"<div class='cancel-alert'><strong>Xin lỗi đăng ký của {first_name} đã bị HỦY vì quá thời hạn thanh toán mất rồi.</strong></div>", unsafe_allow_html=True)
-                        
-                    elif status == "ĐANG CẬP NHẬT":
+                    if cat == "ĐANG CẬP NHẬT":
                         st.success(f"🎉 Chúc mừng {first_name} đã đăng ký thành công, thông tin đăng ký của bạn như sau:")
                         st.markdown(info_card_html, unsafe_allow_html=True)
                         
+                        # Bảng DS
                         table_html = "<table class='custom-table'><thead><tr><th>Họ và Tên</th><th>Năm sinh</th></tr></thead><tbody>"
-                        for ng in ds_nguoi:
+                        for ng in all_ds:
                             parts = ng.split('-')
                             t = parts[0].strip() if len(parts)>0 else ""
                             ns = parts[1].strip() if len(parts)>1 else ""
@@ -150,18 +231,13 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                         table_html += "</tbody></table>"
                         st.markdown(table_html, unsafe_allow_html=True)
                         
-                        tong_tien = format_vnd(row['Tổng tiền'])
-                        han_chot = row['Hạn chót CK']
-                        tg_con = row['Thời gian còn lại']
-                        noidung_ck = f"TRIP - {sdt_display}"
-                        
+                        noidung_ck = f"TRIP - {sdt_disp}"
                         st.markdown("<div class='section-title'>THÔNG TIN THANH TOÁN</div>", unsafe_allow_html=True)
                         
-                        # --- FIX LAYOUT: Dùng Streamlit Container & Columns thay vì HTML div ---
                         with st.container(border=True):
                             col_info, col_qr = st.columns([1.5, 1])
                             with col_info:
-                                st.markdown(f"<div style='margin-bottom: 12px; font-size:15px;'><strong>💰 Tổng số tiền:</strong> <span style='color:#D4AF37; font-weight:bold; font-size:16px;'>{tong_tien}</span></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div style='margin-bottom: 12px; font-size:15px;'><strong>💰 Tổng số tiền:</strong> <span style='color:#D4AF37; font-weight:bold; font-size:16px;'>{format_vnd(total_tien_val)}</span></div>", unsafe_allow_html=True)
                                 st.markdown(f"<div style='margin-bottom: 12px; font-size:15px;'><strong>⏳ Hạn chót CK:</strong> <span style='color:#D4AF37; font-weight:bold; font-size:16px;'>{han_chot}</span></div>", unsafe_allow_html=True)
                                 st.markdown(f"<div style='margin-bottom: 18px; font-size:15px;'><strong>⏱️ Thời gian còn lại:</strong> <span style='color:#D4AF37; font-weight:bold; font-size:16px;'>{tg_con}</span></div>", unsafe_allow_html=True)
                                 
@@ -178,18 +254,16 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                                     st.markdown(f"<div style='text-align:center; padding-top:20px;'><img src='data:image/jpeg;base64,{qr_base64}' style='width:100%; max-width:220px; border-radius:8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);'></div>", unsafe_allow_html=True)
                                 else:
                                     st.write("Đang cập nhật QR...")
-                        # ----------------------------------------------------------------------
-                        
                         st.warning(f"🔄 Sau khi chuyển khoản xong, chậm nhất {wait_time} phút sau kết quả nhận chuyển khoản sẽ được cập nhật. Bạn làm mới (refresh) trang để xem kết quả nhé.")
-                        
-                    elif status == "CHỐT ĐƠN THÀNH CÔNG":
+                    
+                    elif cat == "CHỐT ĐƠN THÀNH CÔNG":
                         st.success(f"🎉 Chúc mừng {first_name} đã CHỐT ĐƠN THÀNH CÔNG, hoàn tất việc đăng ký.")
                         st.markdown(info_card_html, unsafe_allow_html=True)
                         
                         st.markdown(f"""
                         <div style='background-color: #E8F5E9; padding: 15px; border-radius: 8px; border: 1px solid #A5D6A7; margin-bottom: 20px;'>
                             <p style='margin: 0; color: #2E7D32; font-size: 15px;'>✅ BTC đã nhận được thanh toán:</p>
-                            <p style='margin: 5px 0 0 0; font-size: 18px; color: #1B5E20;'><strong>Số tiền chuyển khoản:</strong> <span style='color: #D4AF37;'>{format_vnd(row['Tổng tiền'])}</span></p>
+                            <p style='margin: 5px 0 0 0; font-size: 18px; color: #1B5E20;'><strong>Tổng số tiền đã nhận:</strong> <span style='color: #D4AF37;'>{format_vnd(total_tien_val)}</span></p>
                         </div>
                         """, unsafe_allow_html=True)
 
@@ -202,8 +276,6 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                         
                         if thongtin_base64:
                             st.markdown(f"<img src='data:image/jpeg;base64,{thongtin_base64}' style='width:100%; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);'>", unsafe_allow_html=True)
-                        else:
-                            st.info("Đang cập nhật hình ảnh thông tin chuyến đi...")
         else:
             st.error("Không tìm thấy số điện thoại này. Vui lòng kiểm tra lại!")
 
@@ -211,7 +283,6 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
 st.sidebar.markdown("### ⚙️ FOR ADMIN ONLY")
 admin_pass = st.sidebar.text_input("Nhập mật khẩu:", type="password")
 
-# Hàm helper chuyển data sheet sang integer
 def get_int(df, r, c):
     try:
         val = df.loc[r, c]
@@ -225,17 +296,22 @@ if admin_pass == "0519":
     st.markdown("## KHU VỰC QUẢN TRỊ ADMIN")
     
     admin_tabs = st.tabs(["📊 Thống kê Số Lượng", "💰 Thống kê Chi Phí", "📝 Chỉnh sửa Cấu hình gốc"])
-    list_dots = df_data['Đợt ĐK'].dropna().unique().tolist()
+    
+    # Lọc ra danh sách Prefix (Đợt) từ Tab Thông Số để làm chuẩn
+    list_dots = df_config['Nội dung option'].apply(get_prefix).dropna().unique().tolist()
+    list_dots = [d for d in list_dots if d.strip()]
     
     # TAB A: THỐNG KÊ SỐ LƯỢNG
     with admin_tabs[0]:
         selected_dot_A = st.selectbox("Chọn Đợt để xem thống kê:", ["All"] + list_dots, key="sel_A")
         
-        def render_stats_for_dot(dot_name, df_filtered):
-            st.markdown(f"<div class='section-title'>{dot_name.upper()}</div>", unsafe_allow_html=True)
+        def render_stats_for_dot(dot_prefix, df_full):
+            st.markdown(f"<div class='section-title'>{dot_prefix.upper()}</div>", unsafe_allow_html=True)
             
-            # Gọt khoảng trắng bị dư để tìm số lượng chuẩn xác
-            limit_series = df_config.loc[df_config['Nội dung option'].astype(str).str.strip() == str(dot_name).strip(), 'SL giới hạn']
+            df_filtered = df_full[df_full[col_dot].apply(get_prefix).apply(normalize_text) == normalize_text(dot_prefix)]
+            
+            limit_mask = df_config['Nội dung option'].apply(get_prefix).apply(normalize_text) == normalize_text(dot_prefix)
+            limit_series = df_config.loc[limit_mask, 'SL giới hạn']
             limit_val = int(float(limit_series.values[0])) if not limit_series.empty and pd.notna(limit_series.values[0]) else 0
             
             sl_dang_cap_nhat = df_filtered[df_filtered['Trạng thái CK'] == 'ĐANG CẬP NHẬT']['SL'].apply(pd.to_numeric, errors='coerce').sum()
@@ -244,7 +320,6 @@ if admin_pass == "0519":
             sl_tong = sl_dang_cap_nhat + sl_chot_don
             
             dt_dukien = df_filtered[df_filtered['Trạng thái CK'].isin(['ĐANG CẬP NHẬT', 'CHỐT ĐƠN THÀNH CÔNG'])]['Tổng tiền'].apply(parse_money).sum()
-            # FIX LỖI DOANH THU 1Đ: Dùng cột Tổng tiền thay vì cột checkbox "Quang đã nhận"
             dt_thucte = df_filtered[df_filtered['Trạng thái CK'] == 'CHỐT ĐƠN THÀNH CÔNG']['Tổng tiền'].apply(parse_money).sum()
             
             col1, col2 = st.columns(2)
@@ -290,17 +365,20 @@ if admin_pass == "0519":
                 
         if selected_dot_A == "All":
             for d in list_dots:
-                render_stats_for_dot(d, df_data[df_data['Đợt ĐK'] == d])
+                render_stats_for_dot(d, df_data)
         else:
-            render_stats_for_dot(selected_dot_A, df_data[df_data['Đợt ĐK'] == selected_dot_A])
+            render_stats_for_dot(selected_dot_A, df_data)
 
     # TAB B: THỐNG KÊ CHI PHÍ
     with admin_tabs[1]:
         selected_dot_B = st.selectbox("Chọn Đợt tính chi phí:", list_dots, key="sel_B")
         
-        df_dot_B = df_data[(df_data['Đợt ĐK'] == selected_dot_B) & (df_data['Trạng thái CK'] == 'CHỐT ĐƠN THÀNH CÔNG')]
+        df_dot_B = df_data[(df_data[col_dot].apply(get_prefix).apply(normalize_text) == normalize_text(selected_dot_B)) & (df_data['Trạng thái CK'] == 'CHỐT ĐƠN THÀNH CÔNG')]
         khach_chot_don = df_dot_B['SL'].apply(pd.to_numeric, errors='coerce').sum()
         khach_chot_don = int(khach_chot_don) if pd.notna(khach_chot_don) else 0
+        
+        # Doanh thu thực tế để tính lợi nhuận
+        doanhthu_thucte_B = df_dot_B['Tổng tiền'].apply(parse_money).sum()
         
         st.write(f"**Tổng số người (CHỐT ĐƠN THÀNH CÔNG):** {khach_chot_don} người")
         
@@ -334,14 +412,17 @@ if admin_pass == "0519":
                 cost_data.append([ten_cp, f"{u_cost:,.0f}", sl, f"{thanh_tien:,.0f}"])
                 total_cost += thanh_tien
                 
+        # --- BỔ SUNG TÍNH LỢI NHUẬN ƯỚC TÍNH ---
+        loi_nhuan = doanhthu_thucte_B - total_cost
+        
         st.markdown("<div class='section-title'>BẢNG DỰ TOÁN CHI PHÍ</div>", unsafe_allow_html=True)
         
         table_html = "<table class='custom-table'><thead><tr><th>Chi phí</th><th>Unit Cost</th><th>Số lượng</th><th>Thành tiền (VNĐ)</th></tr></thead><tbody>"
         for row in cost_data:
             table_html += f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}</td></tr>"
         
-        # Bỏ dấu sao thừa và áp dụng màu nền (từ class total-row)
-        table_html += f"<tr class='total-row'><td>TỔNG CỘNG</td><td></td><td></td><td>{total_cost:,.0f}</td></tr>"
+        table_html += f"<tr class='total-row'><td>TỔNG CỘNG CHI PHÍ</td><td></td><td></td><td>{total_cost:,.0f}</td></tr>"
+        table_html += f"<tr class='profit-row'><td>LỢI NHUẬN ƯỚC TÍNH</td><td></td><td></td><td>{loi_nhuan:,.0f}</td></tr>"
         table_html += "</tbody></table>"
         
         st.markdown(table_html, unsafe_allow_html=True)
