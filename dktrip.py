@@ -44,10 +44,17 @@ def normalize_text(text):
     if pd.isna(text): return ""
     return unicodedata.normalize('NFC', str(text)).strip().lower()
 
+# Lấy Group logic (trước dấu ":")
 def get_prefix(text):
     if pd.isna(text): return ""
     txt = str(text).strip()
     return txt.split(':')[0].strip() if ':' in txt else txt
+
+# Lấy Tên hiển thị (trước dấu "-")
+def get_display_name(text):
+    if pd.isna(text): return ""
+    txt = str(text).strip()
+    return txt.split('-')[0].strip() if '-' in txt else txt
 
 # --- Hàm tạo file Word danh sách ---
 def generate_word(df, dot_name):
@@ -217,7 +224,10 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                 elif cat in ["ĐANG CẬP NHẬT", "CHỐT ĐƠN THÀNH CÔNG"]:
                     total_sl = sum(i['sl_dk'] for i in items)
                     total_tien_val = sum(parse_money(i['row']['Tổng tiền']) for i in items)
-                    dots_full = " <br> ".join(list(set([i['dot_dk_full'] for i in items])))
+                    
+                    # --- Đã update: Cắt phần sau dấu gạch ngang "-" ---
+                    dots_full = " <br> ".join(list(set([get_display_name(i['dot_dk_full']) for i in items])))
+                    
                     sdt_disp = items[0]['sdt_display']
                     all_ds = []
                     for i in items: all_ds.extend(i['ds_nguoi'])
@@ -227,10 +237,13 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                     tg_con = latest_row['Thời gian còn lại']
                     
                     zalo_link = ""
-                    zalo_mask = df_config['Nội dung option'].apply(get_prefix).apply(normalize_text) == normalize_text(items[0]['dot_dk_prefix'])
-                    zalo_series = df_config.loc[zalo_mask, 'Link Zalo']
-                    if not zalo_series.empty and pd.notna(zalo_series.values[0]):
-                        zalo_link = str(zalo_series.values[0]).strip()
+                    if 'Link Zalo' in df_config.columns:
+                        zalo_mask = df_config['Nội dung option'].apply(get_prefix).apply(normalize_text) == normalize_text(items[0]['dot_dk_prefix'])
+                        zalo_series = df_config.loc[zalo_mask, 'Link Zalo']
+                        if not zalo_series.empty and pd.notna(zalo_series.values[0]):
+                            raw_zalo = str(zalo_series.values[0]).strip()
+                            if raw_zalo != "" and raw_zalo.lower() not in ["nan", "none"]:
+                                zalo_link = raw_zalo
                     
                     info_card_html = f"""
                     <div class='info-card'>
@@ -291,21 +304,21 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                         table_html += "</tbody></table>"
                         st.markdown(table_html, unsafe_allow_html=True)
                         
-                        # --- THÊM LINK ZALO NGAY DƯỚI BẢNG DANH SÁCH ---
-                        if zalo_link:
-                            st.markdown(f"""
-                            <div style='margin-bottom: 20px; font-size: 15px; color: #0052FF; background-color: #E5F0FF; padding: 15px; border-radius: 8px; border: 1px solid #B3D4FF; font-weight: bold; text-align: center;'>
-                                💬 Anh chị nhớ vào group Zalo để tiện theo dõi thông báo nha:<br>
-                                <a href='{zalo_link}' target='_blank' style='color: #0052FF; text-decoration: underline; font-size: 16px; display: inline-block; margin-top: 5px;'>{zalo_link}</a>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        
                         st.markdown(f"""
                         <div style='background-color: #E8F5E9; padding: 15px; border-radius: 8px; border: 1px solid #A5D6A7; margin-bottom: 20px;'>
                             <p style='margin: 0; color: #2E7D32; font-size: 15px;'>✅ BTC đã nhận được thanh toán:</p>
                             <p style='margin: 5px 0 0 0; font-size: 18px; color: #1B5E20;'><strong>Tổng số tiền đã nhận:</strong> <span style='color: #D4AF37;'>{format_vnd(total_tien_val)}</span></p>
                         </div>
                         """, unsafe_allow_html=True)
+
+                        # --- Đã update: Khung Zalo rực rỡ, nằm ngay sau khung thanh toán ---
+                        if zalo_link:
+                            st.markdown(f"""
+                            <div style='margin-bottom: 25px; font-size: 16px; color: #1A3C0F; background: linear-gradient(135deg, #F4D03F 0%, #F1C40F 100%); padding: 22px; border-radius: 10px; border: 3px dashed #E67E22; font-weight: 900; text-align: center; text-transform: uppercase; box-shadow: 0 6px 12px rgba(0,0,0,0.15);'>
+                                🚨 QUAN TRỌNG: ANH CHỊ NHỚ VÀO GROUP ZALO ĐỂ TIỆN THEO DÕI THÔNG BÁO NHA! 🚨<br>
+                                <a href='{zalo_link}' target='_blank' style='color: #FFFFFF; text-decoration: none; font-size: 17px; display: inline-block; margin-top: 15px; background-color: #D32F2F; padding: 12px 25px; border-radius: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); transition: 0.3s;'>👉 BẤM VÀO ĐÂY ĐỂ THAM GIA GROUP 👈</a>
+                            </div>
+                            """, unsafe_allow_html=True)
 
                         st.markdown(f"""
                         <div style='text-align: center; margin: 25px 0 15px 0; padding: 10px; border-top: 2px dashed #2C5E1A; border-bottom: 2px dashed #2C5E1A;'>
@@ -400,7 +413,6 @@ if admin_pass == "0519":
                 ds_html += "</tbody></table>"
                 st.markdown(ds_html, unsafe_allow_html=True)
                 
-                # --- NÚT TẢI XUỐNG FILE WORD ---
                 word_data = generate_word(df_chot, dot_prefix)
                 st.download_button(
                     label=f"📥 TẢI XUỐNG DANH SÁCH (WORD) - {dot_prefix.upper()}",
@@ -504,7 +516,6 @@ if admin_pass == "0519":
             d2_limit = get_int(df_update, 1, 'SL giới hạn')
             d2_zalo = str(df_update.loc[1, 'Link Zalo']) if len(df_update) > 1 and pd.notna(df_update.loc[1, 'Link Zalo']) else ""
             
-            # --- TÊN NHÃN ĐỘNG THEO PREFIX ĐỢT ---
             with col_d1: opt1 = st.text_input(f"Tên {prefix1}", value=str(d1_name))
             with col_d2: lim1 = st.number_input(f"SL {prefix1}", value=d1_limit, step=1)
             with col_d3: zalo1 = st.text_input(f"Link Zalo {prefix1}", value=str(d1_zalo))
