@@ -575,7 +575,7 @@ if admin_pass == "0519":
                         df_update.loc[i, 'Loại chi phí'] = r['Loại chi phí']
                 
                 try:
-                    conn.update(worksheet="Thông số", data=df_update)
+                    conn.update(spreadsheet=url, worksheet="Thông số", data=df_update)
                     st.success("✅ Đã cập nhật dữ liệu thành công lên Google Sheet! Hãy làm mới trang để thấy thay đổi.")
                     st.cache_data.clear()
                 except Exception as e:
