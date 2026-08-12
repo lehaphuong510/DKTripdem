@@ -18,6 +18,7 @@ def get_image_base64(path):
             return base64.b64encode(img_file.read()).decode()
     return ""
 
+cover_base64 = get_image_base64("web cover.jpg")
 qr_base64 = get_image_base64("TTCK.jpg")
 thongtin_base64 = get_image_base64("THÔNG TIN TRIP POST.jpg")
 
@@ -52,7 +53,7 @@ st.markdown("""
     .stApp { background-color: #FFFFFF; color: #333333; }
     h1, h2, h3, h4, .stTabs [data-baseweb="tab"] p { color: #2C5E1A !important; font-weight: bold; }
     
-    /* FIX UI: Chữ tiêu đề co giãn theo màn hình, chống rớt chữ vô duyên */
+    /* FIX UI: Chữ tiêu đề co giãn theo màn hình */
     h1.main-title {
         text-align: center;
         color: #2C5E1A !important;
@@ -96,6 +97,11 @@ def load_data():
     df_data = conn.read(spreadsheet=url, worksheet="Data App")
     df_config = conn.read(spreadsheet=url, worksheet="Thông số")
     df_data['SDT'] = df_data['SDT'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+    
+    # Đảm bảo có cột Link Zalo để không bị lỗi
+    if 'Link Zalo' not in df_config.columns:
+        df_config['Link Zalo'] = ""
+        
     return df_data, df_config
 
 try:
@@ -116,7 +122,11 @@ except:
     wait_time = 15
 
 # ================= PHẦN 1: USER - KẾT QUẢ ĐĂNG KÝ =================
-st.markdown("<h1 class='main-title'>KẾT QUẢ ĐĂNG KÝ<br>TRIP ĐÊM HUYỀN BÍ</h1>", unsafe_allow_html=True)
+# Ưu tiên load hình cover, nếu không có hình thì load chữ
+if cover_base64:
+    st.markdown(f"<div style='text-align:center; margin-bottom: 25px;'><img src='data:image/jpeg;base64,{cover_base64}' style='width:100%; border-radius:12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);'></div>", unsafe_allow_html=True)
+else:
+    st.markdown("<h1 class='main-title'>KẾT QUẢ ĐĂNG KÝ<br>TRIP ĐÊM HUYỀN BÍ</h1>", unsafe_allow_html=True)
 
 st.markdown("<p style='color: #2C5E1A; font-weight: 900; font-size: 16px; text-transform: uppercase; margin-bottom: 5px;'>NHẬP SỐ ĐIỆN THOẠI CỦA BẠN (ĐÃ DÙNG ĐĂNG KÝ):</p>", unsafe_allow_html=True)
 phone_input = st.text_input("SDT", label_visibility="collapsed", placeholder="Ví dụ: 0901234567")
@@ -188,9 +198,9 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                 if cat == "LO_SLOT":
                     for item in items:
                         if item['lo_type'] == 1:
-                            st.error(f"Xin lỗi {first_name}, do số lượng đăng ký tại {item['dot_dk_prefix']} ({item['sl_dk']} người) đã vượt quá số lượng slot còn lại. Bạn vui lòng liên hệ Zalo 0902800318 để được BTC hỗ trợ thêm nha!")
+                            st.error(f"Xin lỗi {first_name}, do số lượng đăng ký tại {item['dot_dk_prefix']} ({item['sl_dk']} người) đã vượt quá số lượng slot còn lại. Anh chị liên hệ Zalo Quang - 0902800318 để được hỗ trợ giải quyết nha!")
                         else:
-                            st.error(f"Thành thật xin lỗi {first_name} 😭 Do ở cùng một thời điểm có quá nhiều người cùng gửi form nên đăng ký của bạn tại {item['dot_dk_prefix']} được ghi nhận khi đợt trip đã kín chỗ. Hẹn gặp bạn đợt tiếp theo nha!")
+                            st.error(f"Thành thật xin lỗi {first_name} 😭 Do ở cùng một thời điểm có quá nhiều người cùng gửi form nên đăng ký của bạn tại {item['dot_dk_prefix']} được ghi nhận khi đợt trip đã kín chỗ. Anh chị liên hệ Zalo Quang - 0902800318 để được hỗ trợ giải quyết nha!")
                 
                 elif cat == "HỦY SLOT":
                     dots = " & ".join(list(set([i['dot_dk_prefix'] for i in items])))
@@ -208,6 +218,13 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                     latest_row = items[-1]['row']
                     han_chot = latest_row['Hạn chót CK']
                     tg_con = latest_row['Thời gian còn lại']
+                    
+                    # Tìm link zalo tương ứng với đợt
+                    zalo_link = ""
+                    zalo_mask = df_config['Nội dung option'].apply(get_prefix).apply(normalize_text) == normalize_text(items[0]['dot_dk_prefix'])
+                    zalo_series = df_config.loc[zalo_mask, 'Link Zalo']
+                    if not zalo_series.empty and pd.notna(zalo_series.values[0]):
+                        zalo_link = str(zalo_series.values[0]).strip()
                     
                     info_card_html = f"""
                     <div class='info-card'>
@@ -260,6 +277,17 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                         st.success(f"🎉 Chúc mừng {first_name} đã CHỐT ĐƠN THÀNH CÔNG, hoàn tất việc đăng ký.")
                         st.markdown(info_card_html, unsafe_allow_html=True)
                         
+                        # --- Thêm Bảng DS vào luồng Chốt Đơn ---
+                        table_html = "<table class='custom-table'><thead><tr><th>Họ và Tên</th><th>Năm sinh</th></tr></thead><tbody>"
+                        for ng in all_ds:
+                            parts = ng.split('-')
+                            t = parts[0].strip() if len(parts)>0 else ""
+                            ns = parts[1].strip() if len(parts)>1 else ""
+                            table_html += f"<tr><td>{t}</td><td>{ns}</td></tr>"
+                        table_html += "</tbody></table>"
+                        st.markdown(table_html, unsafe_allow_html=True)
+                        # ----------------------------------------
+                        
                         st.markdown(f"""
                         <div style='background-color: #E8F5E9; padding: 15px; border-radius: 8px; border: 1px solid #A5D6A7; margin-bottom: 20px;'>
                             <p style='margin: 0; color: #2E7D32; font-size: 15px;'>✅ BTC đã nhận được thanh toán:</p>
@@ -276,6 +304,15 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                         
                         if thongtin_base64:
                             st.markdown(f"<img src='data:image/jpeg;base64,{thongtin_base64}' style='width:100%; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);'>", unsafe_allow_html=True)
+                        
+                        # --- Box Group Zalo ---
+                        if zalo_link:
+                            st.markdown(f"""
+                            <div style='margin-top: 20px; margin-bottom: 20px; font-size: 15px; color: #0052FF; background-color: #E5F0FF; padding: 15px; border-radius: 8px; border: 1px solid #B3D4FF; font-weight: bold; text-align: center;'>
+                                💬 Anh chị nhớ vào group Zalo để tiện theo dõi thông báo nha:<br>
+                                <a href='{zalo_link}' target='_blank' style='color: #0052FF; text-decoration: underline; font-size: 16px; display: inline-block; margin-top: 5px;'>{zalo_link}</a>
+                            </div>
+                            """, unsafe_allow_html=True)
         else:
             st.error("Không tìm thấy số điện thoại này. Vui lòng kiểm tra lại!")
 
@@ -297,7 +334,6 @@ if admin_pass == "0519":
     
     admin_tabs = st.tabs(["📊 Thống kê Số Lượng", "💰 Thống kê Chi Phí", "📝 Chỉnh sửa Cấu hình gốc"])
     
-    # Lọc ra danh sách Prefix (Đợt) từ Tab Thông Số để làm chuẩn
     list_dots = df_config['Nội dung option'].apply(get_prefix).dropna().unique().tolist()
     list_dots = [d for d in list_dots if d.strip()]
     
@@ -377,7 +413,6 @@ if admin_pass == "0519":
         khach_chot_don = df_dot_B['SL'].apply(pd.to_numeric, errors='coerce').sum()
         khach_chot_don = int(khach_chot_don) if pd.notna(khach_chot_don) else 0
         
-        # Doanh thu thực tế để tính lợi nhuận
         doanhthu_thucte_B = df_dot_B['Tổng tiền'].apply(parse_money).sum()
         
         st.write(f"**Tổng số người (CHỐT ĐƠN THÀNH CÔNG):** {khach_chot_don} người")
@@ -412,7 +447,6 @@ if admin_pass == "0519":
                 cost_data.append([ten_cp, f"{u_cost:,.0f}", sl, f"{thanh_tien:,.0f}"])
                 total_cost += thanh_tien
                 
-        # --- BỔ SUNG TÍNH LỢI NHUẬN ƯỚC TÍNH ---
         loi_nhuan = doanhthu_thucte_B - total_cost
         
         st.markdown("<div class='section-title'>BẢNG DỰ TOÁN CHI PHÍ</div>", unsafe_allow_html=True)
@@ -444,17 +478,24 @@ if admin_pass == "0519":
             with col_t1: tg_ck = st.number_input("Thời gian CK (phút)", value=get_int(df_update, 0, 'Thời gian CK'), step=1)
             with col_t2: tg_check = st.number_input("Thời gian Check (phút)", value=get_int(df_update, 0, 'Thời gian Check'), step=1)
             
-            st.markdown("### 3. Cụm Số lượng giới hạn (2 Đợt)")
-            col_d1, col_d2 = st.columns(2)
+            st.markdown("### 3. Cụm Số lượng giới hạn & Link Zalo (2 Đợt)")
+            col_d1, col_d2, col_d3 = st.columns([2, 1, 2])
+            
             d1_name = str(df_update.loc[0, 'Nội dung option']) if len(df_update) > 0 and pd.notna(df_update.loc[0, 'Nội dung option']) else ""
             d1_limit = get_int(df_update, 0, 'SL giới hạn')
+            d1_zalo = str(df_update.loc[0, 'Link Zalo']) if len(df_update) > 0 and pd.notna(df_update.loc[0, 'Link Zalo']) else ""
+            
             d2_name = str(df_update.loc[1, 'Nội dung option']) if len(df_update) > 1 and pd.notna(df_update.loc[1, 'Nội dung option']) else ""
             d2_limit = get_int(df_update, 1, 'SL giới hạn')
+            d2_zalo = str(df_update.loc[1, 'Link Zalo']) if len(df_update) > 1 and pd.notna(df_update.loc[1, 'Link Zalo']) else ""
             
             with col_d1: opt1 = st.text_input("Tên đợt 1", value=str(d1_name))
             with col_d2: lim1 = st.number_input("SL đợt 1", value=d1_limit, step=1)
+            with col_d3: zalo1 = st.text_input("Link Zalo đợt 1", value=str(d1_zalo))
+            
             with col_d1: opt2 = st.text_input("Tên đợt 2", value=str(d2_name))
             with col_d2: lim2 = st.number_input("SL đợt 2", value=d2_limit, step=1)
+            with col_d3: zalo2 = st.text_input("Link Zalo đợt 2", value=str(d2_zalo))
             
             st.markdown("### 4. Cụm Chi phí tổ chức")
             st.caption("Chỉnh sửa trực tiếp trên bảng bên dưới (Có thể click đúp vào ô để gõ)")
@@ -490,8 +531,11 @@ if admin_pass == "0519":
                 
                 df_update.loc[0, 'Nội dung option'] = opt1
                 df_update.loc[0, 'SL giới hạn'] = lim1
+                df_update.loc[0, 'Link Zalo'] = zalo1
+                
                 df_update.loc[1, 'Nội dung option'] = opt2
                 df_update.loc[1, 'SL giới hạn'] = lim2
+                df_update.loc[1, 'Link Zalo'] = zalo2
                 
                 df_update['Chi phí tổ chức'] = None
                 df_update['Unit cost'] = None
