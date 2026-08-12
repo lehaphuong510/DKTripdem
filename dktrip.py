@@ -50,18 +50,23 @@ st.markdown("""
 # URL Google Sheet
 url = "https://docs.google.com/spreadsheets/d/1xwALxKMnTwXeP8Vy3BVJTuD0JpF981_mv_b4AjIaigA/edit"
 
+# Mở kết nối ở bên ngoài để Streamlit không bị lú
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 @st.cache_data(ttl=5) # Giữ cache ngắn để admin update/user coi realtime
 def load_data():
-    conn = st.connection("gsheets", type=GSheetsConnection)
     df_data = conn.read(spreadsheet=url, worksheet="Data App")
     df_config = conn.read(spreadsheet=url, worksheet="Thông số")
     
     # Xử lý số điện thoại về chuẩn chuỗi (text), tránh mất số 0
     df_data['SDT'] = df_data['SDT'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
-    return df_data, df_config, conn
+    
+    # LƯU Ý KỸ: Chỉ trả về data, KHÔNG trả về conn ở đây nữa
+    return df_data, df_config
 
 try:
-    df_data, df_config, conn = load_data()
+    # Gọi hàm lấy data
+    df_data, df_config = load_data()
 except Exception as e:
     st.error(f"Lỗi kết nối dữ liệu: {e}")
     st.stop()
