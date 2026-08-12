@@ -8,7 +8,6 @@ from streamlit_gsheets import GSheetsConnection
 # ================= CẤU HÌNH TRANG & GIAO DIỆN =================
 st.set_page_config(page_title="KẾT QUẢ ĐĂNG KÝ TRIP", page_icon="🌿", layout="centered")
 
-# URL Google Sheet (Đã bổ sung lại để fix lỗi missing url)
 url = "https://docs.google.com/spreadsheets/d/1xwALxKMnTwXeP8Vy3BVJTuD0JpF981_mv_b4AjIaigA/edit"
 
 def get_image_base64(path):
@@ -20,16 +19,14 @@ def get_image_base64(path):
 qr_base64 = get_image_base64("TTCK.jpg")
 thongtin_base64 = get_image_base64("THÔNG TIN TRIP POST.jpg")
 
-# Hàm xử lý tiền tệ: Fix triệt để lỗi đuôi thập phân (.0) dư số 0
+# Fix triệt để lỗi đuôi thập phân (.0) và lỗi ép kiểu Checkbox (Boolean)
 def parse_money(amount):
     if pd.isna(amount): return 0
+    if isinstance(amount, bool): return 0 # Chặn lỗi TRUE = 1đ
     try:
         if isinstance(amount, (int, float)): return int(amount)
-        # Ép về chuỗi, loại bỏ đoạn .0 ở cuối nếu có
         s = str(amount).strip()
-        if s.endswith('.0'):
-            s = s[:-2]
-        # Lọc chỉ lấy số
+        if s.endswith('.0'): s = s[:-2]
         s = re.sub(r'[^\d]', '', s)
         return int(s) if s else 0
     except:
@@ -48,40 +45,27 @@ st.markdown("""
     .stButton>button:hover { background-color: #2C5E1A; color: #FFFFFF; border: none; }
     .stTextInput>div>div>input { background-color: #F8F9FA; color: #333333; border: 1px solid #2C5E1A; border-radius: 5px; font-size: 16px; font-weight: bold;}
     
-    /* Giao diện Bảng */
     .section-title { background: linear-gradient(90deg, #2C5E1A 0%, #D4AF37 100%); color: white; padding: 12px 15px; border-radius: 8px 8px 0 0; font-size: 16px; font-weight: bold; margin-top: 25px; text-transform: uppercase; }
     .custom-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 20px; border: 1px solid #E0E6ED; border-top: none; border-radius: 0 0 8px 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); overflow: hidden; }
     .custom-table thead tr { background-color: #1A3C0F; } 
     .custom-table th { color: white; padding: 12px 14px; text-align: center; font-size: 15px; border: none; }
     .custom-table td { padding: 14px; border-bottom: 1px solid #EEEEEE; border-right: 1px solid #EEEEEE; text-align: center; font-weight: bold; color: #2C5E1A; background-color: #FFFFFF;}
     
-    /* Box Thanh toán */
-    .payment-box { display: flex; flex-wrap: wrap; border: 1px solid #E0E6ED; border-top: none; border-radius: 0 0 8px 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); background-color: #FAFAFA; margin-bottom: 25px; }
-    .payment-info { flex: 1.3; min-width: 250px; padding-right: 15px; }
-    .payment-qr { flex: 1; min-width: 200px; text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center;}
-    
-    .highlight-val { color: #D4AF37; font-weight: bold; font-size: 16px;} 
-    .info-row { margin-bottom: 15px; font-size: 15px; border-bottom: 1px dashed #EEEEEE; padding-bottom: 10px;}
-    
     .cancel-alert { background-color: #F8D7DA; color: #721C24; padding: 20px; border-radius: 8px; border: 1px solid #F5C6CB; margin-bottom: 20px; text-align: center; line-height: 1.6; }
     
-    /* Box thông tin đăng ký */
     .info-card { background: linear-gradient(135deg, #F9FBE7 0%, #FFFDE7 100%); padding: 20px; border-left: 6px solid #2C5E1A; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     .info-card p { margin-bottom: 8px; font-size: 16px; }
     .info-card strong { color: #2C5E1A; }
     .info-card span { color: #D4AF37; font-weight: bold; font-size: 17px;}
     
-    /* Fix Card Admin đều nhau */
     .metric-card { height: 100%; min-height: 180px; display: flex; flex-direction: column; justify-content: center; background-color: #FFFFFF; border: 1px solid #E0E6ED; border-top: 5px solid #2C5E1A; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: center;}
     .metric-title { font-size: 16px; color: #2C5E1A; font-weight: bold; text-transform: uppercase; margin-bottom: 5px;}
     .metric-value { font-size: 28px; color: #D4AF37; font-weight: 900;}
     
-    /* Dòng Tổng cộng bảng chi phí */
     .total-row td { background-color: #F4C430 !important; color: #1A3C0F !important; font-size: 16px; font-weight: 900 !important;}
     </style>
 """, unsafe_allow_html=True)
 
-# Lấy data
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=5)
@@ -118,7 +102,7 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
         
         if not matched_rows.empty:
             for idx, row in matched_rows.iterrows():
-                dot_dk = row['Đợt ĐK']
+                dot_dk = str(row['Đợt ĐK']).strip()
                 sdt = row['SDT']
                 sdt_display = f"0{str(sdt).lstrip('0')}"
                 
@@ -128,11 +112,12 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                 ds_nguoi = str(row['DS người']).split(',')
                 first_name = ds_nguoi[0].split('-')[0].strip() if ds_nguoi else "Bạn"
                 
-                df_dot = df_data[df_data['Đợt ĐK'] == dot_dk].sort_values(by='Timestamp').copy()
+                df_dot = df_data[df_data['Đợt ĐK'].astype(str).str.strip() == dot_dk].sort_values(by='Timestamp').copy()
                 df_dot['CumSum_SL'] = pd.to_numeric(df_dot['SL'], errors='coerce').fillna(0).cumsum()
                 
-                limit_row = df_config[df_config['Nội dung option'] == dot_dk]
-                max_slot = int(limit_row['SL giới hạn'].values[0]) if not limit_row.empty else 30
+                limit_row = df_config[df_config['Nội dung option'].astype(str).str.strip() == dot_dk]
+                max_slot = int(float(limit_row['SL giới hạn'].values[0])) if not limit_row.empty and pd.notna(limit_row['SL giới hạn'].values[0]) else 30
+                
                 user_cumsum = df_dot.loc[df_dot['SDT'] == sdt, 'CumSum_SL'].values[0]
                 
                 if user_cumsum > max_slot:
@@ -170,22 +155,31 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                         tg_con = row['Thời gian còn lại']
                         noidung_ck = f"TRIP - {sdt_display}"
                         
-                        img_tag = f"<img src='data:image/jpeg;base64,{qr_base64}' alt='QR Code'>" if qr_base64 else "Đang cập nhật QR"
-                        
                         st.markdown("<div class='section-title'>THÔNG TIN THANH TOÁN</div>", unsafe_allow_html=True)
-                        st.markdown("<div class='payment-box'><div class='payment-info'>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='info-row'><strong>💰 Tổng số tiền:</strong> <span class='highlight-val'>{tong_tien}</span></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='info-row'><strong>⏳ Hạn chót CK:</strong> <span class='highlight-val'>{han_chot}</span></div>", unsafe_allow_html=True)
-                        st.markdown(f"<div class='info-row'><strong>⏱️ Thời gian còn lại:</strong> <span class='highlight-val'>{tg_con}</span></div>", unsafe_allow_html=True)
                         
-                        st.markdown("<div style='margin-top: 15px; font-weight: bold; color: #2C5E1A; margin-bottom: 5px;'>THÔNG TIN CHUYỂN KHOẢN:</div>", unsafe_allow_html=True)
-                        st.markdown("<div style='font-size: 15px; margin-bottom: 5px;'>Tô Văn Quang - Vietcombank<br>STK:</div>", unsafe_allow_html=True)
-                        st.code("0251001799405", language=None)
+                        # --- FIX LAYOUT: Dùng Streamlit Container & Columns thay vì HTML div ---
+                        with st.container(border=True):
+                            col_info, col_qr = st.columns([1.5, 1])
+                            with col_info:
+                                st.markdown(f"<div style='margin-bottom: 12px; font-size:15px;'><strong>💰 Tổng số tiền:</strong> <span style='color:#D4AF37; font-weight:bold; font-size:16px;'>{tong_tien}</span></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div style='margin-bottom: 12px; font-size:15px;'><strong>⏳ Hạn chót CK:</strong> <span style='color:#D4AF37; font-weight:bold; font-size:16px;'>{han_chot}</span></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div style='margin-bottom: 18px; font-size:15px;'><strong>⏱️ Thời gian còn lại:</strong> <span style='color:#D4AF37; font-weight:bold; font-size:16px;'>{tg_con}</span></div>", unsafe_allow_html=True)
+                                
+                                st.markdown("<div style='font-weight: bold; color: #2C5E1A; margin-bottom: 5px; font-size:15px;'>THÔNG TIN CHUYỂN KHOẢN:</div>", unsafe_allow_html=True)
+                                st.markdown("<div style='font-size: 15px; margin-bottom: 5px; color: #2C5E1A;'>Tô Văn Quang - Vietcombank<br>STK:</div>", unsafe_allow_html=True)
+                                st.code("0251001799405")
+                                
+                                st.markdown("<div style='font-weight: bold; color: #2C5E1A; margin-bottom: 5px; margin-top: 15px; font-size:15px;'>NỘI DUNG CHUYỂN KHOẢN:</div>", unsafe_allow_html=True)
+                                st.code(noidung_ck)
+                                st.markdown("<div style='text-align: center; color: red; font-weight: bold; font-size: 15px; margin-top: 5px;'>⚠️ Vui lòng chuyển đúng nội dung</div>", unsafe_allow_html=True)
+                            
+                            with col_qr:
+                                if qr_base64:
+                                    st.markdown(f"<div style='text-align:center; padding-top:20px;'><img src='data:image/jpeg;base64,{qr_base64}' style='width:100%; max-width:220px; border-radius:8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);'></div>", unsafe_allow_html=True)
+                                else:
+                                    st.write("Đang cập nhật QR...")
+                        # ----------------------------------------------------------------------
                         
-                        st.markdown("<div style='margin-top: 10px; font-weight: bold; color: #2C5E1A; margin-bottom: 5px;'>NỘI DUNG CHUYỂN KHOẢN:</div>", unsafe_allow_html=True)
-                        st.code(noidung_ck, language=None)
-                        st.markdown("<div style='margin-top: 10px; text-align: center;'><span style='color: red; font-weight: bold; font-size: 16px;'>⚠️ Vui lòng chuyển đúng nội dung</span></div>", unsafe_allow_html=True)
-                        st.markdown("</div><div class='payment-qr'>" + img_tag + "</div></div>", unsafe_allow_html=True)
                         st.warning(f"🔄 Sau khi chuyển khoản xong, chậm nhất {wait_time} phút sau kết quả nhận chuyển khoản sẽ được cập nhật. Bạn làm mới (refresh) trang để xem kết quả nhé.")
                         
                     elif status == "CHỐT ĐƠN THÀNH CÔNG":
@@ -217,6 +211,14 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
 st.sidebar.markdown("### ⚙️ FOR ADMIN ONLY")
 admin_pass = st.sidebar.text_input("Nhập mật khẩu:", type="password")
 
+# Hàm helper chuyển data sheet sang integer
+def get_int(df, r, c):
+    try:
+        val = df.loc[r, c]
+        return int(float(val)) if pd.notna(val) else 0
+    except:
+        return 0
+
 if admin_pass == "0519":
     st.sidebar.success("Xác thực thành công!")
     st.markdown("---")
@@ -232,8 +234,9 @@ if admin_pass == "0519":
         def render_stats_for_dot(dot_name, df_filtered):
             st.markdown(f"<div class='section-title'>{dot_name.upper()}</div>", unsafe_allow_html=True)
             
-            limit = df_config.loc[df_config['Nội dung option'] == dot_name, 'SL giới hạn'].values
-            limit_val = int(limit[0]) if len(limit) > 0 and pd.notna(limit[0]) else 0
+            # Gọt khoảng trắng bị dư để tìm số lượng chuẩn xác
+            limit_series = df_config.loc[df_config['Nội dung option'].astype(str).str.strip() == str(dot_name).strip(), 'SL giới hạn']
+            limit_val = int(float(limit_series.values[0])) if not limit_series.empty and pd.notna(limit_series.values[0]) else 0
             
             sl_dang_cap_nhat = df_filtered[df_filtered['Trạng thái CK'] == 'ĐANG CẬP NHẬT']['SL'].apply(pd.to_numeric, errors='coerce').sum()
             sl_chot_don = df_filtered[df_filtered['Trạng thái CK'] == 'CHỐT ĐƠN THÀNH CÔNG']['SL'].apply(pd.to_numeric, errors='coerce').sum()
@@ -241,7 +244,8 @@ if admin_pass == "0519":
             sl_tong = sl_dang_cap_nhat + sl_chot_don
             
             dt_dukien = df_filtered[df_filtered['Trạng thái CK'].isin(['ĐANG CẬP NHẬT', 'CHỐT ĐƠN THÀNH CÔNG'])]['Tổng tiền'].apply(parse_money).sum()
-            dt_thucte = df_filtered[df_filtered['Trạng thái CK'] == 'CHỐT ĐƠN THÀNH CÔNG']['Quang đã nhận'].apply(parse_money).sum()
+            # FIX LỖI DOANH THU 1Đ: Dùng cột Tổng tiền thay vì cột checkbox "Quang đã nhận"
+            dt_thucte = df_filtered[df_filtered['Trạng thái CK'] == 'CHỐT ĐƠN THÀNH CÔNG']['Tổng tiền'].apply(parse_money).sum()
             
             col1, col2 = st.columns(2)
             with col1:
@@ -330,20 +334,19 @@ if admin_pass == "0519":
                 cost_data.append([ten_cp, f"{u_cost:,.0f}", sl, f"{thanh_tien:,.0f}"])
                 total_cost += thanh_tien
                 
-        # Build bảng HTML thủ công để style dòng Tổng cộng
         st.markdown("<div class='section-title'>BẢNG DỰ TOÁN CHI PHÍ</div>", unsafe_allow_html=True)
         
         table_html = "<table class='custom-table'><thead><tr><th>Chi phí</th><th>Unit Cost</th><th>Số lượng</th><th>Thành tiền (VNĐ)</th></tr></thead><tbody>"
         for row in cost_data:
             table_html += f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}</td></tr>"
         
-        # Dòng tổng cộng (Áp dụng class CSS total-row đã định nghĩa ở trên)
+        # Bỏ dấu sao thừa và áp dụng màu nền (từ class total-row)
         table_html += f"<tr class='total-row'><td>TỔNG CỘNG</td><td></td><td></td><td>{total_cost:,.0f}</td></tr>"
         table_html += "</tbody></table>"
         
         st.markdown(table_html, unsafe_allow_html=True)
 
-    # TAB C: CHỈNH SỬA GỐC (Giữ nguyên như cũ nha)
+    # TAB C: CHỈNH SỬA GỐC
     with admin_tabs[2]:
         st.warning("⚠️ Mọi thay đổi ở đây sẽ ghi đè trực tiếp lên tab 'Thông số' của Google Sheet.")
         df_update = df_config.copy()
@@ -351,26 +354,26 @@ if admin_pass == "0519":
         with st.form("update_config_form"):
             st.markdown("### 1. Cụm Scheme vé")
             col_v1, col_v2, col_v3 = st.columns(3)
-            with col_v1: ve = st.number_input("Vé 1 người", value=float(df_update.loc[0, 'Vé 1 người']) if pd.notna(df_update.loc[0, 'Vé 1 người']) else 0)
-            with col_v2: sl_km = st.number_input("SL khuyến mãi", value=float(df_update.loc[0, 'SL khuyến mãi']) if pd.notna(df_update.loc[0, 'SL khuyến mãi']) else 0)
-            with col_v3: km = st.number_input("Scheme khuyến mãi", value=float(df_update.loc[0, 'Scheme khuyến mãi']) if pd.notna(df_update.loc[0, 'Scheme khuyến mãi']) else 0)
+            with col_v1: ve = st.number_input("Vé 1 người", value=get_int(df_update, 0, 'Vé 1 người'), step=1)
+            with col_v2: sl_km = st.number_input("SL khuyến mãi", value=get_int(df_update, 0, 'SL khuyến mãi'), step=1)
+            with col_v3: km = st.number_input("Scheme khuyến mãi", value=get_int(df_update, 0, 'Scheme khuyến mãi'), step=1)
             
             st.markdown("### 2. Cụm Thời gian")
             col_t1, col_t2 = st.columns(2)
-            with col_t1: tg_ck = st.number_input("Thời gian CK (phút)", value=float(df_update.loc[0, 'Thời gian CK']) if pd.notna(df_update.loc[0, 'Thời gian CK']) else 0)
-            with col_t2: tg_check = st.number_input("Thời gian Check (phút)", value=float(df_update.loc[0, 'Thời gian Check']) if pd.notna(df_update.loc[0, 'Thời gian Check']) else 0)
+            with col_t1: tg_ck = st.number_input("Thời gian CK (phút)", value=get_int(df_update, 0, 'Thời gian CK'), step=1)
+            with col_t2: tg_check = st.number_input("Thời gian Check (phút)", value=get_int(df_update, 0, 'Thời gian Check'), step=1)
             
             st.markdown("### 3. Cụm Số lượng giới hạn (2 Đợt)")
             col_d1, col_d2 = st.columns(2)
-            d1_name = df_update.loc[0, 'Nội dung option'] if len(df_update) > 0 and pd.notna(df_update.loc[0, 'Nội dung option']) else ""
-            d1_limit = int(float(df_update.loc[0, 'SL giới hạn'])) if len(df_update) > 0 and pd.notna(df_update.loc[0, 'SL giới hạn']) else 30
-            d2_name = df_update.loc[1, 'Nội dung option'] if len(df_update) > 1 and pd.notna(df_update.loc[1, 'Nội dung option']) else ""
-            d2_limit = int(float(df_update.loc[1, 'SL giới hạn'])) if len(df_update) > 1 and pd.notna(df_update.loc[1, 'SL giới hạn']) else 30
+            d1_name = str(df_update.loc[0, 'Nội dung option']) if len(df_update) > 0 and pd.notna(df_update.loc[0, 'Nội dung option']) else ""
+            d1_limit = get_int(df_update, 0, 'SL giới hạn')
+            d2_name = str(df_update.loc[1, 'Nội dung option']) if len(df_update) > 1 and pd.notna(df_update.loc[1, 'Nội dung option']) else ""
+            d2_limit = get_int(df_update, 1, 'SL giới hạn')
             
             with col_d1: opt1 = st.text_input("Tên đợt 1", value=str(d1_name))
-            with col_d2: lim1 = st.number_input("SL đợt 1", value=d1_limit)
+            with col_d2: lim1 = st.number_input("SL đợt 1", value=d1_limit, step=1)
             with col_d1: opt2 = st.text_input("Tên đợt 2", value=str(d2_name))
-            with col_d2: lim2 = st.number_input("SL đợt 2", value=d2_limit)
+            with col_d2: lim2 = st.number_input("SL đợt 2", value=d2_limit, step=1)
             
             st.markdown("### 4. Cụm Chi phí tổ chức")
             st.caption("Chỉnh sửa trực tiếp trên bảng bên dưới (Có thể click đúp vào ô để gõ)")
