@@ -142,6 +142,16 @@ try:
 except:
     wait_time = 15
 
+# ================= SIDEBAR: MENU TÙY CHỌN & ADMIN =================
+st.sidebar.markdown("### 🔄 LÀM MỚI HỆ THỐNG")
+if st.sidebar.button("CẬP NHẬT DỮ LIỆU MỚI"):
+    st.cache_data.clear()
+    st.rerun()
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ⚙️ FOR ADMIN ONLY")
+admin_pass = st.sidebar.text_input("Nhập mật khẩu:", type="password")
+
 # ================= PHẦN 1: USER - KẾT QUẢ ĐĂNG KÝ =================
 if cover_base64:
     st.markdown(f"<div style='text-align:center; margin-bottom: 25px;'><img src='data:image/jpeg;base64,{cover_base64}' style='width:100%; border-radius:12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);'></div>", unsafe_allow_html=True)
@@ -225,7 +235,6 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                     total_sl = sum(i['sl_dk'] for i in items)
                     total_tien_val = sum(parse_money(i['row']['Tổng tiền']) for i in items)
                     
-                    # --- Đã update: Cắt phần sau dấu gạch ngang "-" ---
                     dots_full = " <br> ".join(list(set([get_display_name(i['dot_dk_full']) for i in items])))
                     
                     sdt_disp = items[0]['sdt_display']
@@ -311,7 +320,6 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                         </div>
                         """, unsafe_allow_html=True)
 
-                        # --- Đã update: Khung Zalo rực rỡ, nằm ngay sau khung thanh toán ---
                         if zalo_link:
                             st.markdown(f"""
                             <div style='margin-bottom: 25px; font-size: 16px; color: #1A3C0F; background: linear-gradient(135deg, #F4D03F 0%, #F1C40F 100%); padding: 22px; border-radius: 10px; border: 3px dashed #E67E22; font-weight: 900; text-align: center; text-transform: uppercase; box-shadow: 0 6px 12px rgba(0,0,0,0.15);'>
@@ -331,10 +339,6 @@ if st.button("TRA CỨU KẾT QUẢ 🚀"):
                             st.markdown(f"<img src='data:image/jpeg;base64,{thongtin_base64}' style='width:100%; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);'>", unsafe_allow_html=True)
         else:
             st.error("Không tìm thấy số điện thoại này. Vui lòng kiểm tra lại!")
-
-# ================= PHẦN 2: ADMIN ONLY =================
-st.sidebar.markdown("### ⚙️ FOR ADMIN ONLY")
-admin_pass = st.sidebar.text_input("Nhập mật khẩu:", type="password")
 
 def get_int(df, r, c):
     try:
